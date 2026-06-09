@@ -141,7 +141,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "{\n  \"from\": \"Alerts <hello@mumernisar.dev>\",\n  \"to\": \"uk4333671@gmail.com\",\n  \"subject\": \"Lead capture FAILED for {{ $('Normalize & Prepare').item.json.email }}\",\n  \"html\": \"<p>The Laravel API did not accept this lead after 3 retries. Please follow up manually.</p><pre>{{ JSON.stringify($('Map Enrichment').item.json) }}</pre>\"\n}",
+        "jsonBody": "={{ JSON.stringify({\n  \"from\": \"Alerts <hello@mumernisar.dev>\",\n  \"to\": \"hello@mumernisar.dev\",\n  \"subject\": \"Lead capture FAILED for \" + $('Normalize & Prepare').item.json.email,\n  \"html\": \"<p>The Laravel API did not accept this lead after 3 retries. Please follow up manually.</p><pre>\" + JSON.stringify($('Map Enrichment').item.json, null, 2) + \"</pre>\"\n}) }}",
         "options": {}
       },
       "id": "88888888-8888-8888-8888-888888888888",
