@@ -1,0 +1,202 @@
+{
+  "name": "Lead Enrichment & Onboarding",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Contact Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-360, 300],
+      "webhookId": "lead-intake"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise the raw form payload into a clean, predictable shape.\nconst raw = $input.first().json.body ?? $input.first().json;\nconst email = String(raw.email || '').toLowerCase().trim();\nconst domain = email.includes('@') ? email.split('@')[1] : null;\n\nreturn [{\n  json: {\n    name: raw.name || raw.full_name || 'Unknown',\n    email,\n    phone: raw.phone || null,\n    company: raw.company || (domain ? domain.split('.')[0] : null),\n    company_domain: domain,\n    message: raw.message || null,\n    source: 'contact_form',\n    raw_payload: raw\n  }\n}];"
+      },
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Normalize & Prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-140, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.apollo.io/v1/organizations/enrich",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "domain", "value": "={{ $json.company_domain }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Api-Key", "value": "REPLACE_WITH_APOLLO_API_KEY" },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "Enrich via Apollo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 300],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge the original lead with whatever Apollo returned.\n// If Apollo has no record (or the call failed), we still create the\n// lead but flag enrichment_status = 'failed' so the sales team can see\n// at a glance which leads need a manual size lookup.\nconst lead = $('Normalize & Prepare').item.json;\nconst org = ($json && $json.organization) ? $json.organization : null;\n\nlet company_size = null;\nlet company_industry = null;\nlet enrichment_status = 'failed';\n\nif (org && (org.estimated_num_employees || org.industry)) {\n  company_size = org.estimated_num_employees || null;\n  company_industry = org.industry || null;\n  enrichment_status = 'enriched';\n}\n\nreturn [{\n  json: { ...lead, company_size, company_industry, enrichment_status }\n}];"
+      },
+      "id": "44444444-4444-4444-4444-444444444444",
+      "name": "Map Enrichment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer REPLACE_WITH_LEAD_API_TOKEN"
+            },
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "55555555-5555-5555-5555-555555555555",
+      "name": "Create Lead in Laravel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer REPLACE_WITH_RESEND_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"from\": \"Sales Team <hello@mumernisar.dev>\",\n  \"to\": \"{{ $('Normalize & Prepare').item.json.email }}\",\n  \"subject\": \"Welcome aboard, {{ $('Normalize & Prepare').item.json.name }}!\",\n  \"html\": \"<p>Hi {{ $('Normalize & Prepare').item.json.name }},</p><p>Thanks for reaching out — we've received your enquiry and a member of our sales team will be in touch shortly.</p><p>The Sales Team</p>\"\n}",
+        "options": {}
+      },
+      "id": "66666666-6666-6666-6666-666666666666",
+      "name": "Send Welcome Email (Resend)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [800, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"ok\", \"lead_id\": $('Create Lead in Laravel').item.json.lead_id } }}",
+        "options": {}
+      },
+      "id": "77777777-7777-7777-7777-777777777777",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1040, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer REPLACE_WITH_RESEND_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"from\": \"Alerts <hello@mumernisar.dev>\",\n  \"to\": \"uk4333671@gmail.com\",\n  \"subject\": \"Lead capture FAILED for {{ $('Normalize & Prepare').item.json.email }}\",\n  \"html\": \"<p>The Laravel API did not accept this lead after 3 retries. Please follow up manually.</p><pre>{{ JSON.stringify($('Map Enrichment').item.json) }}</pre>\"\n}",
+        "options": {}
+      },
+      "id": "88888888-8888-8888-8888-888888888888",
+      "name": "Alert Team (Laravel down)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [800, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 202,
+        "responseBody": "={{ { \"status\": \"accepted\", \"note\": \"Lead queued for manual processing; downstream system was unavailable.\" } }}",
+        "options": {}
+      },
+      "id": "99999999-9999-9999-9999-999999999999",
+      "name": "Respond Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1040, 420]
+    }
+  ],
+  "connections": {
+    "Contact Form Webhook": {
+      "main": [[{ "node": "Normalize & Prepare", "type": "main", "index": 0 }]]
+    },
+    "Normalize & Prepare": {
+      "main": [[{ "node": "Enrich via Apollo", "type": "main", "index": 0 }]]
+    },
+    "Enrich via Apollo": {
+      "main": [
+        [{ "node": "Map Enrichment", "type": "main", "index": 0 }],
+        [{ "node": "Map Enrichment", "type": "main", "index": 0 }]
+      ]
+    },
+    "Map Enrichment": {
+      "main": [
+        [{ "node": "Create Lead in Laravel", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Lead in Laravel": {
+      "main": [
+        [{ "node": "Send Welcome Email (Resend)", "type": "main", "index": 0 }],
+        [{ "node": "Alert Team (Laravel down)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Welcome Email (Resend)": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    },
+    "Alert Team (Laravel down)": {
+      "main": [[{ "node": "Respond Accepted", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
